@@ -10,20 +10,30 @@ import gzip,csv
 import pandas as pd
 import numpy as np
 import math,time
-import  threading
 import shutil  
-import multiprocessing 
+import multiprocessing
 
+def MOparaCheck(dcgkfile,baseline,temID):
+    dcgkfile=csv.reader(open(dcgkfile,"r"))
+    for MOpara in dcgkfile:
+        p=str(MOpara[3])
+        o=str(baseline[2])
+        valueU=p.upper()
+        valuebaseU=o.upper()
+        if baseline[0] in MOpara[1] and baseline[1] in MOpara[2] and valuebaseU not in valueU:
+            with open(temID+"MO参数核查结果.csv", "a+") as f:
+                #line=MOpara[0]+","+MOpara[1]+","+MOpara[2]+","+MOpara[3]+","+baseline[2]+"\n"
+                line=",".join([MOpara[0],MOpara[1],MOpara[2],MOpara[3],baseline[2]])
+                f.write(line)
+                f.write("\n")
 
         
  
 def loghandle(SCbaselinefile,MObaselinefile,MOdumppath,names):
     newdir=random.randint(70000,99999)
     newdir=str(newdir)
-    print(newdir)
     temID=newdir
     newdir=os.getcwd()+"\\"+newdir
-    print(MOdumppath)
     with open(temID+"MO参数核查结果.csv", "w+") as f:
         title="sitename,MO,para,current value,Baseline value\n"
         f.write(title)
@@ -46,17 +56,24 @@ def loghandle(SCbaselinefile,MObaselinefile,MOdumppath,names):
                 for filename in z.namelist( ):
                     filename=newdir+"\\"+filename
                     if "_dcg_" in filename:
-                      sitesname=filename[:-13]#拿到sitesname
+                      sitesname=filename[:-13]
                 "=============================================================================================================================================================="
                 for filename in z.namelist( ):
                     filename=newdir+"\\"+filename
+                    
                     MOparaOutput(filename,newdir)
+                    
                     SCbaslinecheck(SCbaselinefile,filename,sitesname,newdir,names)
+                    
                 "============================================================================================================================================================="
-                dataset = pd.read_csv(sitesname+"dcgkMO.csv")
+                #print(sitesname+"dcgkMO.csv")
+                #dataset = pd.read_csv(sitesname+"dcgkMO.csv")
+                dcgkfile=sitesname+"dcgkMO.csv"
                 BaselinesData=csv.reader(open(MObaselinefile,"r"))
                 for m in BaselinesData: 
-                    dataset.apply(lambda x:compare(x,m[0],m[1],m[2],temID),axis=1)
+                    #dataset.apply(lambda x:compare(x,m[0],m[1],m[2],temID),axis=1)
+                    MOparaCheck(dcgkfile,m,temID)
+                    
 
                 shutil.rmtree(temID)
      
@@ -79,7 +96,6 @@ def compare(x,mo,para,value,temID):
 
 def SCcompare(x,sitename,temID,names):
     with open(temID+"系统常量参数核查结果.csv", "a+") as f:
-        #print(sitename)
         names=names.strip("_modump.zip")
         if math.isnan(x[1]):
             x[3]="gNB中没有写入该SC"
@@ -132,8 +148,11 @@ def MOparaOutput(filename,newdir):
     j=0
     MOloc=[]
     sitename=""
+    context=""
     if "_dcg_" in filename:
       sitename=filename[:-13]
+      Tsitename=filename[:-13]
+      
       g_file = gzip.GzipFile(filename)
       xe=g_file.readlines()
       xe=[i.decode('utf-8') for i in xe]
@@ -150,7 +169,9 @@ def MOparaOutput(filename,newdir):
                       mo=xe[mo1st]
                       mo=mo.strip("\n")
                       mo=mo.replace(",","  ")
+                      
                       for c in range(mo1st,mo2nd):
+
                           mo=mo.strip()
                           xe[c]=xe[c].strip()
                           
@@ -160,16 +181,22 @@ def MOparaOutput(filename,newdir):
                               if"         " in para:
                                   para=para.split("         ",1)
                                   para[1]=para[1].strip()
-                                  lines=mo+","+para[0]+","+para[1]
+                                  #lines=mo+","+para[0]+","+para[1]
+                                  lines=",".join([mo,para[0],para[1]])
                                   sitename=sitename.replace(newdir+"\\","")
-                                  lines=sitename+","+lines+"\n"
+                                  lines=",".join([sitename,lines])
+                                  #lines=sitename+","+lines+"\n"
+                                  lines=lines+"\n"
                                   if "==="  not in lines:
-                                      f.write(lines)
-                              
+                                      context=context+lines
+                                          
+                                                      
                       j=j+2
       except IndexError:
-          print("OK")
-          f.close()
+          with open(Tsitename+"dcgkMO.csv", "w+",newline='') as f:
+              f.write(context) 
+          
+          
 def MergeResult(resultname,newresultname):
     SC=pd.DataFrame()
     path=os.getcwd()
@@ -190,14 +217,15 @@ if __name__ == '__main__':
     MObaselinefile=input("请输入MO参数baseline文件及完整路径（CSV格式）： ")
     SCbaselinefile=input("请输入系统常量baseline文件及完整路径（CSV格式）：")
     MOdumppath=input("请输入modump文件完整路径（存放_modump.zip文件的路径，文件可放于子文件内）： ")
+
     t0=time.perf_counter()
-    print("本次核查创建进程数：%d (由本机CPU个数决定)" % (os.cpu_count()))
+    coreNum=os.cpu_count()
+    print("本次核查创建进程数：%d (由本机CPU个数决定)" % coreNum)
     pl=multiprocessing.Pool()
     for root, dirs, files in os.walk(MOdumppath):
         for name in files:
             mofile=os.path.join(root, name)
             if "modump.zip" in mofile:
-                print("正在核查 "+name)
                 pl.apply_async(loghandle,(SCbaselinefile,MObaselinefile,root,name))
     pl.close()
     pl.join()
@@ -208,12 +236,5 @@ if __name__ == '__main__':
     newresultnameSC="系统常量参数_核查结果.csv"
     MergeResult(resultnameSC,newresultnameSC)
     t1=time.perf_counter()
-    print("本次核查已完成，请查看 系统常量参数_核查结果.csv 与 MO参数_核查结果.csv ，本次核查总计耗时： %.3f 秒" % (t1-t0))
+    print("本次核查已完成，请查看 系统常量参数_核查结果.csv 与 MO参数_核查结果.csv ，结果存放路径为: "+os.getcwd()+",本次核查总计耗时： %.3f 秒" % (t1-t0))
     time.sleep(10)
-"============================================================================================================================================================="
-
-
-              
-
-
-          
